@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Delulu is the Solulu</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/addons/p5.sound.min.js"></script>
+  </head>
+  <body>
+    <script>
+      let mic;
+      let amp;
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        background(20);
+        textSize(24);
+        fill(255);
+        textAlign(CENTER);
+        text("🌀 對著麥克風說話，或播放一首歌，開始創造你的夢", width / 2, height / 2);
+
+        mic = new p5.AudioIn();
+        mic.start();
+
+        amp = new p5.Amplitude();
+        amp.setInput(mic);
+      }
+
+      function draw() {
+        let vol = amp.getLevel();
+        let size = map(vol, 0, 0.3, 10, 300);
+
+        noStroke();
+        fill(random(150, 255), random(100, 255), random(200, 255), 80);
+        ellipse(random(width), random(height), size, size);
+      }
+
+      function keyPressed() {
+        if (key === 's' || key === 'S') {
+          saveCanvas('delulu-dream', 'png');
+        }
+      }
+    </script>
+  </body>
+</html>
