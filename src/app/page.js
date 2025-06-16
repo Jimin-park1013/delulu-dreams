@@ -3,188 +3,171 @@ import { useEffect, useRef, useState } from "react";
 
 export default function DeluluPage() {
   const sketchRef = useRef();
-  const [started, setStarted] = useState(false);
   const myp5Ref = useRef(null);
+  const [started, setStarted] = useState(false);
 
-  useEffect(() => {
-    if (!started) return;
+  async function loadP5() {
+    const p5module = await import("p5");
+    window.p5 = p5module.default;
+    await import("p5.sound");
 
-    const loadP5 = async () => {
-      const p5module = await import("p5");
-      window.p5 = p5module.default;
-      await import("p5.sound");
+    let mic, amp;
+    let particles = [];
+    const maxParticles = 150;
+    let triggered = false;
+    let triggerTimer = 0;
 
-      let mic, amp;
-      let myp5;
-      const objects = [];
-
-      // 夢境物件類別 (多種形狀)
-      class DreamObject {
-        constructor(p, x, y, size, shapeType, direction) {
-          this.p = p;
-          this.x = x;
-          this.y = y;
-          this.size = size;
-          this.shapeType = shapeType;
-          this.alpha = 200;
-          this.direction = direction; // 1 往下, -1 往上
-          this.speedY = p.random(1, 3) * this.direction;
-          this.rotation = p.random(p.TWO_PI);
-          this.rotationSpeed = p.random(-0.02, 0.02);
-          this.stopped = false;
-
-          this.stayTimer = 0; // 停留計時器
-          this.stayDuration = p.floor(p.random(180, 300)); // 3~5秒，60FPS
+    const sketch = (p) => {
+      class Particle {
+        constructor() {
+          this.pos = p.createVector(p.random(p.width), p.random(p.height));
+          this.vel = p.createVector(0, 0);
+          this.acc = p.createVector(0, 0);
+          this.size = p.random(2, 6);
+          this.alpha = 255;
+          this.colorBase = p.random() < 0.5 ? "green" : "red";
+          this.angle = p.random(p.TWO_PI);
+          this.angularSpeed = p.random(-0.05, 0.05);
         }
 
-        update() {
-          if (!this.stopped) {
-            this.y += this.speedY;
-            if (
-              (this.direction === 1 && this.y >= this.p.height - this.size / 2) ||
-              (this.direction === -1 && this.y <= this.size / 2)
-            ) {
-              this.y = this.direction === 1
-                ? this.p.height - this.size / 2
-                : this.size / 2;
-              this.stopped = true;
-              this.speedY = 0;
-            }
-          } else {
-            this.stayTimer++;
-            if (this.stayTimer > this.stayDuration) {
-              this.alpha -= 0.5; // 停留時間過後開始淡出
-            }
-          }
-          this.rotation += this.rotationSpeed;
+        applyForce(force) {
+          this.acc.add(force);
         }
 
-        isOffscreen() {
-          return this.alpha <= 0;
+        update(vol) {
+          let flow = p.noise(this.pos.x * 0.005, this.pos.y * 0.005, p.frameCount * 0.01);
+          let angle = flow * p.TWO_PI * 2;
+          let flowForce = p5.Vector.fromAngle(angle);
+          flowForce.mult(0.05);
+          this.applyForce(flowForce);
+
+          const flameForce = p.createVector(p.random(-0.02, 0.02), -0.02 * vol);
+          this.applyForce(flameForce);
+
+          this.vel.add(this.acc);
+          this.vel.limit(1.2);
+          this.pos.add(this.vel);
+          this.acc.mult(0);
+
+          this.angle += this.angularSpeed;
+
+          this.size = p.lerp(this.size, 3 + vol * 6, 0.1);
+          this.alpha = p.map(this.vel.mag(), 0, 1.2, 50, 255);
+
+          if (this.pos.x < 0) this.pos.x = p.width;
+          if (this.pos.x > p.width) this.pos.x = 0;
+          if (this.pos.y < 0) this.pos.y = p.height;
+          if (this.pos.y > p.height) this.pos.y = 0;
         }
 
         draw() {
-          const p = this.p;
           p.push();
-          p.translate(this.x, this.y);
-          p.rotate(this.rotation);
-          p.noStroke();
-          p.fill(150, 180, 255, this.alpha);
-
-          switch (this.shapeType) {
-            case "circle":
-              p.ellipse(0, 0, this.size);
-              break;
-            case "star":
-              drawStar(p, 0, 0, this.size / 2, this.size, 5);
-              break;
-            case "triangle":
-              p.triangle(
-                -this.size / 2,
-                this.size / 2,
-                0,
-                -this.size / 2,
-                this.size / 2,
-                this.size / 2
-              );
-              break;
-            case "diamond":
-              p.quad(
-                0,
-                -this.size / 2,
-                this.size / 2,
-                0,
-                0,
-                this.size / 2,
-                -this.size / 2,
-                0
-              );
-              break;
+          p.translate(this.pos.x, this.pos.y);
+          p.rotate(this.angle);
+          if (this.colorBase === "green") {
+            p.stroke(50, 255, 100, this.alpha);
+            p.fill(50, 255, 100, this.alpha * 0.3);
+          } else {
+            p.stroke(255, 80, 20, this.alpha);
+            p.fill(255, 80, 20, this.alpha * 0.3);
           }
-
+          p.strokeWeight(1.8);
+          p.ellipse(0, 0, this.size, this.size * 2.5);
           p.pop();
         }
       }
 
-      // 輔助函數：畫五角星
-      function drawStar(p, x, y, radius1, radius2, npoints) {
-        let angle = p.TWO_PI / npoints;
-        let halfAngle = angle / 2.0;
-        p.beginShape();
-        for (let a = 0; a < p.TWO_PI; a += angle) {
-          let sx = x + p.cos(a) * radius2;
-          let sy = y + p.sin(a) * radius2;
-          p.vertex(sx, sy);
-          sx = x + p.cos(a + halfAngle) * radius1;
-          sy = y + p.sin(a + halfAngle) * radius1;
-          p.vertex(sx, sy);
+      p.setup = () => {
+        p.createCanvas(p.windowWidth, p.windowHeight);
+        p.background(10, 10, 10);
+      
+        mic = new p5.AudioIn();
+        mic.start();
+      
+        amp = new p5.Amplitude();
+        amp.setInput(mic);
+      
+
+        for (let i = 0; i < maxParticles; i++) {
+          particles.push(new Particle());
         }
-        p.endShape(p.CLOSE);
-      }
 
-      const sketch = (p) => {
-        p.setup = () => {
-          p.createCanvas(p.windowWidth, p.windowHeight);
-          p.background(20);
-          mic = new p5.AudioIn();
-          mic.start();
-          amp = new p5.Amplitude();
-          amp.setInput(mic);
-          p.noStroke();
-        };
-
-        p.draw = () => {
-          // 夢幻殘影透明背景
-          p.background(20, 20, 40, 30);
-
-          // 取得音量
-          let vol = amp.getLevel();
-
-          // 根據音量決定新增物件數量
-          let addCount = Math.floor(p.map(vol, 0, 0.3, 0, 10, true));
-          for (let i = 0; i < addCount; i++) {
-            let size = p.random(20, 70) * p.map(vol, 0, 0.3, 0.3, 1.5);
-            const shapeTypes = ["circle", "star", "triangle", "diamond"];
-            let shapeType = shapeTypes[Math.floor(p.random(shapeTypes.length))];
-
-            // 隨機方向，上方或下方產生
-            let direction = p.random() < 0.5 ? 1 : -1;
-            let startY = direction === 1 ? -size : p.height + size;
-
-            objects.push(new DreamObject(p, p.random(p.width), startY, size, shapeType, direction));
-          }
-
-          // 限制最多物件數量，超過刪除最舊
-          const maxObjects = 50;
-          while (objects.length > maxObjects) {
-            objects.shift();
-          }
-
-          // 更新繪製並移除透明消失物件
-          for (let i = objects.length - 1; i >= 0; i--) {
-            const obj = objects[i];
-            obj.update();
-            obj.draw();
-            if (obj.isOffscreen()) {
-              objects.splice(i, 1);
-            }
-          }
-        };
-
-        p.windowResized = () => {
-          p.resizeCanvas(p.windowWidth, p.windowHeight);
-        };
-
-        p.keyPressed = () => {
-          if (p.key === "s" || p.key === "S") {
-            p.saveCanvas("delulu-dream", "png");
-          }
-        };
+        p.noStroke();
+        p.frameRate(60);
       };
 
-      myp5 = new p5(sketch, sketchRef.current);
-      myp5Ref.current = myp5;
+      p.draw = () => {
+        p.background(10, 10, 10, 80);
+
+        let vol = 0;
+        if (amp) {
+          vol = amp.getLevel();
+        }
+        const volScaled = p.constrain(p.map(vol, 0, 0.3, 0, 3), 0, 3);
+
+        // ✅ 節奏爆點觸發（音量瞬間超過）
+        let threshold = 0.12;
+        if (vol > threshold && !triggered) {
+          triggered = true;
+          triggerTimer = 10;
+
+          for (let i = 0; i < 80; i++) {
+            particles.push(new Particle());
+            if (particles.length > maxParticles) particles.shift();
+          }
+
+          p.background(255, 80); // 閃一下
+        }
+        if (triggerTimer > 0) {
+          triggerTimer--;
+        } else {
+          triggered = false;
+        }
+
+        // ✅ 擴散波紋：音量顯示
+        let waveSize = p.map(vol, 0, 0.3, 0, p.width * 0.6);
+        p.noFill();
+        p.stroke(255, 255, 255, 50 + vol * 200);
+        p.strokeWeight(2);
+        p.ellipse(p.width / 2, p.height / 2, waveSize, waveSize);
+
+        // ✅ 粒子更新繪製
+        particles.forEach((pt) => {
+          pt.update(volScaled);
+          pt.draw();
+        });
+
+        // ✅ 閃爍火光粒子
+        for (let i = 0; i < 30; i++) {
+          let x = p.random(p.width);
+          let y = p.random(p.height);
+          let alpha = p.random(50, 180) * volScaled;
+          let size = p.random(1, 4) * volScaled;
+          let flickerColor = p.random() < 0.5 ? [50, 255, 100, alpha] : [255, 80, 20, alpha];
+
+          p.noStroke();
+          p.fill(...flickerColor);
+          p.ellipse(x, y, size, size * 1.2);
+        }
+      };
+
+      p.windowResized = () => {
+        p.resizeCanvas(p.windowWidth, p.windowHeight);
+      };
+
+      p.keyPressed = () => {
+        if (p.key === "s" || p.key === "S") {
+          p.saveCanvas("flameflow", "png");
+        }
+      };
     };
+
+    const myp5 = new p5(sketch, sketchRef.current);
+    myp5Ref.current = myp5;
+  }
+
+  useEffect(() => {
+    if (!started) return;
 
     loadP5();
 
@@ -197,16 +180,26 @@ export default function DeluluPage() {
   }, [started]);
 
   return (
-    <main className="w-screen h-screen overflow-hidden bg-black relative">
+    <main className="w-screen h-screen overflow-hidden bg-black relative text-cyan-100 font-mono">
       {!started && (
-        <button
-          onClick={() => setStarted(true)}
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-          px-8 py-6 bg-gradient-to-r from-purple-600 to-blue-500 text-white
-          font-bold rounded-xl shadow-lg hover:brightness-110 transition"
-        >
-          🌀 開始你的夢
-        </button>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-gradient-to-br from-black via-[#001b2e] to-[#003d52] p-10 text-center">
+          <h1 className="text-3xl md:text-5xl font-bold leading-snug tracking-wide text-cyan-300">
+            🧠 DREAM LINK INITIALIZED
+          </h1>
+          <p className="max-w-2xl text-sm md:text-base text-cyan-200 leading-relaxed tracking-wide">
+            請對著麥克風說話或播放一首歌，開始創造你的夢。
+            <br />
+            幻想不只是逃避，更是一種創造。
+            <br />
+            儲存畫面：按下 <code className="text-white">S</code> 鍵
+          </p>
+          <button
+            onClick={() => setStarted(true)}
+            className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold rounded-xl shadow-md transition"
+          >
+            🔊 啟動夢境生成器
+          </button>
+        </div>
       )}
       <div ref={sketchRef} />
     </main>
